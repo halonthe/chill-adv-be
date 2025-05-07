@@ -11,6 +11,7 @@ export const verifyToken = (req, res, next) => {
     if (error)
       return res.status(403).json({ code: 403, message: "invalid token" });
     req.email = decoded.email;
+    console.log(req.email);
     next();
   });
 };

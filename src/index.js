@@ -17,7 +17,7 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(fileUpload());
 
-// generate table sesuai models jika tabel belum tersedia di database
+// otomatis generate table jika tabel belum tersedia di database
 (async () => {
   await db.sync();
 })();

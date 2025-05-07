@@ -1,12 +1,22 @@
 import { Router } from "express";
-import { getToken, login, logout } from "../controllers/auth.controller.js";
+import {
+  activateAccount,
+  getToken,
+  login,
+  logout,
+  register,
+} from "../controllers/auth.controller.js";
 
 const authRoute = Router();
 
+// register
+authRoute.post("/register", register);
+// verify account
+authRoute.post("/verify", activateAccount);
 // login
-authRoute.post("/", login);
+authRoute.post("/login", login);
 // logout
-authRoute.delete("/", logout);
+authRoute.delete("/logout", logout);
 // get token
 authRoute.get("/token", getToken);
 

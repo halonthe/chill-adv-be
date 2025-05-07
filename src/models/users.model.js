@@ -44,6 +44,12 @@ const usersModel = db.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    verified: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+      validate: { notEmpty: true },
+    },
     refresh_token: {
       type: DataTypes.TEXT,
     },

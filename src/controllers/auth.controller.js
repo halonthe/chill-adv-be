@@ -1,6 +1,133 @@
 import jwt from "jsonwebtoken";
 import usersModel from "../models/users.model.js";
 import * as argon2 from "argon2";
+import { generateUserVerificationCode } from "../utils/generate.verification.code.js";
+import userVerificationsModel from "../models/user.verifications.model.js";
+import { sendEmail } from "../utils/send.email.js";
+
+// register controller
+export const register = async (req, res) => {
+  const { fullname, username, email, password, confPassword } = req.body;
+
+  // validasi input
+  if (!fullname || !username || !email || !password)
+    return res
+      .status(400)
+      .json({ code: 400, message: "all fields are required" });
+
+  // validasi email
+  const findUser = await usersModel.findOne({ where: { email: email } });
+  if (findUser && email === findUser.email)
+    return res.status(400).json({ message: "email already exists" });
+
+  // validasi password
+  if (password !== confPassword)
+    return res
+      .status(400)
+      .json({ message: "password and confirm password doesn't match" });
+
+  // hash password
+  const hashPassword = await argon2.hash(password);
+
+  // generate verification code
+  const userVerifyToken = generateUserVerificationCode();
+  const userVerifyTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
+  try {
+    // create user
+    const user = await usersModel.create({
+      fullname: fullname,
+      username: username,
+      email: email,
+      password: hashPassword,
+    });
+
+    // create verification
+    await userVerificationsModel.create({
+      userId: user.uuid,
+      verification_token: userVerifyToken,
+      token_expired: userVerifyTokenExpire,
+    });
+
+    // send verification email
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: user.email,
+      subject: "Verify Account",
+      text: `Your code: ${userVerifyToken}. this code valid until: ${Date(
+        userVerifyTokenExpire
+      )}`,
+    };
+    sendEmail(mailOptions);
+
+    return res.status(200).json({
+      code: 200,
+      message: "register successfully, check email to verify account",
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ code: 500, message: error.message });
+  }
+};
+
+// activate account controller
+export const activateAccount = async (req, res) => {
+  try {
+    // find all matching activation code
+    const code = req.body.verification_code;
+    const match = await userVerificationsModel.findAll({
+      where: { verification_token: code },
+    });
+
+    // validate duplicate
+    if (match.length > 1) {
+      // resend code
+      const randomCode = generateUserVerificationCode();
+      const expiredCode = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      const mailOptions = {
+        from: process.env.SMTP_USER,
+        to: user.email,
+        subject: "Verify Account",
+        text: `Your code: ${randomCode}. this code valid until: ${Date(
+          expiredCode
+        )}`,
+      };
+      sendEmail(mailOptions);
+
+      return res.status(409).json({
+        code: 409,
+        message:
+          "conflict detected, we have resend code, please check your email",
+      });
+    }
+
+    // validate code
+    const user = await usersModel.findOne({ where: { uuid: match[0].userId } });
+
+    if (user.verified) {
+      await userVerificationsModel.destroy({ where: { userId: user.uuid } });
+      return res
+        .status(406)
+        .json({ code: 406, message: "user already active" });
+    }
+
+    if (match[0].verification_token != code)
+      return res.status(406).json({ code: 406, message: "invalid code" });
+
+    // update user
+    await usersModel.update({ verified: true }, { where: { uuid: user.uuid } });
+
+    // delete code
+    await userVerificationsModel.destroy({ where: { userId: user.uuid } });
+
+    return res
+      .status(200)
+      .json({ code: 200, message: "account has been activate" });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ code: 500, message: error.message });
+  }
+};
 
 // login controller
 export const login = async (req, res) => {
