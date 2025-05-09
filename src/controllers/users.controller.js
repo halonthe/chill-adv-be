@@ -1,7 +1,20 @@
 import * as argon2 from "argon2";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import path from "path";
+import fs from "fs";
 import usersModel from "../models/users.model.js";
+import { uploadFile } from "../utils/file.upload.js";
 
-// get all users
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * This is controller to get all user data, only accessible by admin
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const getUsers = async (req, res) => {
   try {
     const result = await usersModel.findAll({
@@ -11,7 +24,8 @@ export const getUsers = async (req, res) => {
         "fullname",
         "username",
         "email",
-        "role",
+        "is_admin",
+        "verified",
         "avatar_path",
       ],
     });
@@ -24,7 +38,12 @@ export const getUsers = async (req, res) => {
   }
 };
 
-// get user by id
+/**
+ * This is controller to get specifiec user
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const getUserById = async (req, res) => {
   try {
     // make sure data sensitif tidak dikirim ke client
@@ -34,7 +53,8 @@ export const getUserById = async (req, res) => {
         "fullname",
         "username",
         "email",
-        "role",
+        "is_admin",
+        "verified",
         "avatar_path",
       ],
       where: {
@@ -56,21 +76,19 @@ export const getUserById = async (req, res) => {
   }
 };
 
-// add user
+/**
+ * This is an admin feature to add users that they do not need to send an activation code to verify their account.
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const addUser = async (req, res) => {
-  const {
-    fullname,
-    username,
-    email,
-    password,
-    confPassword,
-    role,
-    avatar_path,
-  } = req.body;
+  const { fullname, username, email, password, confPassword, is_admin } =
+    req.body;
 
   // validasi email
-  const findUser = await usersModel.findOne({ where: { email: email } });
-  if (findUser && email === findUser.email)
+  const userExist = await usersModel.findOne({ where: { email: email } });
+  if (userExist)
     return res.status(400).json({ message: "email already exists" });
 
   // validasi password
@@ -81,14 +99,34 @@ export const addUser = async (req, res) => {
 
   const hashPassword = await argon2.hash(password);
 
+  // file upload
+  let avatarPath = `${req.protocol}://${req.get(
+    "host"
+  )}/images/users/default.png`;
+
+  if (req.files) {
+    const file = req.files.file;
+    const ext = path.extname(file.name);
+    const fileName = file.md5 + ext;
+    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
+    const uploadFolder = path.join(
+      __dirname,
+      `../public/images/users/${fileName}`
+    );
+
+    uploadFile(req, res, uploadFolder);
+    avatarPath = url;
+  }
+
+  // push to database
   try {
     const result = await usersModel.create({
       fullname: fullname,
       username: username,
       email: email,
       password: hashPassword,
-      role: role,
-      avatar_path: avatar_path,
+      is_admin: is_admin,
+      avatar_path: avatarPath,
     });
     return res
       .status(201)
@@ -99,17 +137,15 @@ export const addUser = async (req, res) => {
   }
 };
 
-// update user
+/**
+ * This is controller for users to update their data
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const updateUser = async (req, res) => {
-  const {
-    fullname,
-    username,
-    email,
-    password,
-    confPassword,
-    role,
-    avatar_path,
-  } = req.body;
+  const { fullname, username, email, password, confPassword, is_admin } =
+    req.body;
 
   // validasi user
   const user = await usersModel.findOne({ where: { uuid: req.params.id } });
@@ -127,10 +163,31 @@ export const updateUser = async (req, res) => {
   }
 
   if (password !== confPassword)
-    return res
-      .status(400)
-      .json({ message: "password and confirm password not match" });
+    return res.status(400).json({
+      code: 400,
+      message: "password and confirm password doesn't match",
+    });
 
+  // file upload
+  let avatarPath = `${req.protocol}://${req.get(
+    "host"
+  )}/images/users/default.png`;
+
+  if (req.files) {
+    const file = req.files.file;
+    const ext = path.extname(file.name);
+    const fileName = file.md5 + ext;
+    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
+    const uploadFolder = path.join(
+      __dirname,
+      `../public/images/users/${fileName}`
+    );
+
+    uploadFile(req, res, uploadFolder);
+    avatarPath = url;
+  }
+
+  // update data
   try {
     const result = await usersModel.update(
       {
@@ -138,8 +195,8 @@ export const updateUser = async (req, res) => {
         username: username,
         email: email,
         password: hashPassword,
-        role: role,
-        avatar_path: avatar_path,
+        is_admin: is_admin,
+        avatar_path: avatarPath,
       },
       {
         where: { uuid: user.uuid },
@@ -154,15 +211,34 @@ export const updateUser = async (req, res) => {
   }
 };
 
-// delete user
+/**
+ * This is controller to delete user, only accessible by admin
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const deleteUser = async (req, res) => {
   try {
-    const result = await usersModel.destroy({
+    // find user
+    const user = await usersModel.findOne({
       where: { uuid: req.params.id },
     });
-    return res
-      .status(200)
-      .json({ code: 200, message: "user deleted", data: result });
+
+    if (!user)
+      return res.status(200).json({ status: 200, message: "user not found" });
+
+    // delete user image file
+    const fileUrl = user.avatar_path;
+    const fileArr = fileUrl.split("/");
+    const fileName = fileArr[fileArr.length - 1];
+    const filePath = path.join(__dirname, `../public/images/users/${fileName}`);
+    fs.unlinkSync(filePath);
+
+    // delete user data
+    await usersModel.destroy({
+      where: { uuid: req.params.id },
+    });
+    return res.status(200).json({ code: 200, message: "user deleted" });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ code: 500, message: error.message });

@@ -1,5 +1,12 @@
 import usersModel from "../models/users.model.js";
 
+/**
+ * This is middleware to check if user has activate their account
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ * @returns
+ */
 export const verifyAccount = async (req, res, next) => {
   // get token from cookie
   const refreshToken = req.cookies.refreshToken;
@@ -20,7 +27,7 @@ export const verifyAccount = async (req, res, next) => {
   if (!user[0].verified)
     return res
       .status(403)
-      .json({ code: 403, message: "verify your account to access" });
+      .json({ code: 403, message: "required `verified` account" });
 
   next();
 };

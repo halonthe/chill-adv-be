@@ -1,5 +1,12 @@
 import jwt from "jsonwebtoken";
 
+/**
+ * This is middleware to check if user has authorized
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ * @returns
+ */
 export const verifyToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];

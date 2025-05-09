@@ -12,7 +12,7 @@ import { verifyRole } from "../middleware/verify.role.js";
 
 const usersRoute = Router();
 
-// get all users (required admin role)
+// get all users
 usersRoute.get("/", verifyToken, verifyAccount, verifyRole, getUsers);
 // get user by id
 usersRoute.get("/:id", verifyToken, verifyAccount, getUserById);

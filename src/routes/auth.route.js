@@ -18,6 +18,6 @@ authRoute.post("/login", login);
 // logout
 authRoute.delete("/logout", logout);
 // get token
-authRoute.get("/token", getToken);
+authRoute.get("/get-token", getToken);
 
 export default authRoute;

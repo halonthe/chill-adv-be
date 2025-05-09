@@ -34,9 +34,9 @@ const usersModel = db.define(
       allowNull: false,
       validate: { notEmpty: true },
     },
-    role: {
-      type: DataTypes.STRING,
-      defaultValue: "member",
+    is_admin: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
       allowNull: false,
       validate: { notEmpty: true },
     },

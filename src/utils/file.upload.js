@@ -1,0 +1,30 @@
+import path from "path";
+
+/**
+ * This is function to upload file
+ * @param {*} req request from the body
+ * @param {*} res response
+ * @param {*} uploadFolder destination uploaded file
+ * @returns
+ */
+export const uploadFile = async (req, res, uploadFolder) => {
+  // define
+  const file = req.files.file;
+  const ext = path.extname(file.name);
+  const fileSize = file.data.length;
+  const allowedFormat = [".png", ".jpg", ".jpeg"];
+
+  //   check extension
+  if (!allowedFormat.includes(ext.toLowerCase()))
+    return res.status(422).json({ code: 422, message: "invalid format" });
+  if (fileSize > 5000000)
+    return res
+      .status(422)
+      .json({ code: 422, message: "file-size must be less than 5MB" });
+
+  //   save file
+  await file.mv(uploadFolder, async (error) => {
+    if (error)
+      return res.status(500).json({ code: 500, message: error.message });
+  });
+};

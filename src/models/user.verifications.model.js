@@ -7,15 +7,15 @@ const { DataTypes } = Sequelize;
 const userVerificationsModel = db.define(
   "user_verifications",
   {
-    userId: {
+    user_uuid: {
       type: DataTypes.UUID,
       allowNull: false,
     },
-    verification_token: {
+    verification_code: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    token_expired: {
+    expired_at: {
       type: DataTypes.DATE,
       allowNull: false,
     },
@@ -25,7 +25,9 @@ const userVerificationsModel = db.define(
   }
 );
 
-usersModel.hasOne(userVerificationsModel);
-userVerificationsModel.belongsTo(usersModel, { foreignKey: "userId" });
+usersModel.hasOne(userVerificationsModel, { foreignKey: "user_uuid" });
+userVerificationsModel.belongsTo(usersModel, {
+  foreignKey: "user_uuid",
+});
 
 export default userVerificationsModel;

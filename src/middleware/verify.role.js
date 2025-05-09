@@ -1,5 +1,12 @@
 import usersModel from "../models/users.model.js";
 
+/**
+ * This is middleware to check if user has `admin` role
+ * @param {*} req
+ * @param {*} res
+ * @param {*} next
+ * @returns
+ */
 export const verifyRole = async (req, res, next) => {
   // get token from cookie
   const refreshToken = req.cookies.refreshToken;
@@ -17,7 +24,7 @@ export const verifyRole = async (req, res, next) => {
     return res.status(403).json({ code: 403, message: "invalid token" });
 
   //  validate role
-  if (user[0].role !== "admin")
+  if (user[0].is_admin !== true)
     return res
       .status(403)
       .json({ code: 403, message: "required `admin` role" });

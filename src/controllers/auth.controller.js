@@ -1,23 +1,35 @@
 import jwt from "jsonwebtoken";
-import usersModel from "../models/users.model.js";
 import * as argon2 from "argon2";
-import { generateUserVerificationCode } from "../utils/generate.verification.code.js";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import path from "path";
+
+import usersModel from "../models/users.model.js";
 import userVerificationsModel from "../models/user.verifications.model.js";
 import { sendEmail } from "../utils/send.email.js";
+import { uploadFile } from "../utils/file.upload.js";
 
-// register controller
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * This is register controller
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const register = async (req, res) => {
   const { fullname, username, email, password, confPassword } = req.body;
 
-  // validasi input
+  // validasi field
   if (!fullname || !username || !email || !password)
     return res
       .status(400)
       .json({ code: 400, message: "all fields are required" });
 
   // validasi email
-  const findUser = await usersModel.findOne({ where: { email: email } });
-  if (findUser && email === findUser.email)
+  const userExist = await usersModel.findOne({ where: { email: email } });
+  if (userExist)
     return res.status(400).json({ message: "email already exists" });
 
   // validasi password
@@ -29,9 +41,28 @@ export const register = async (req, res) => {
   // hash password
   const hashPassword = await argon2.hash(password);
 
+  // file upload
+  let avatarPath = `${req.protocol}://${req.get(
+    "host"
+  )}/images/users/default.png`;
+
+  if (req.files) {
+    const file = req.files.file;
+    const ext = path.extname(file.name);
+    const fileName = file.md5 + ext;
+    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
+    const uploadFolder = path.join(
+      __dirname,
+      `../public/images/users/${fileName}`
+    );
+
+    uploadFile(req, res, uploadFolder);
+    avatarPath = url;
+  }
+
   // generate verification code
-  const userVerifyToken = generateUserVerificationCode();
-  const userVerifyTokenExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+  const userVerifyCode = Math.floor(1000 + Math.random() * 9000).toString();
+  const userVerifyCodeExpire = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 
   try {
     // create user
@@ -40,13 +71,14 @@ export const register = async (req, res) => {
       username: username,
       email: email,
       password: hashPassword,
+      avatar_path: avatarPath,
     });
 
     // create verification
     await userVerificationsModel.create({
-      userId: user.uuid,
-      verification_token: userVerifyToken,
-      token_expired: userVerifyTokenExpire,
+      user_uuid: user.uuid,
+      verification_code: userVerifyCode,
+      expired_at: userVerifyCodeExpire,
     });
 
     // send verification email
@@ -54,8 +86,8 @@ export const register = async (req, res) => {
       from: process.env.SMTP_USER,
       to: user.email,
       subject: "Verify Account",
-      text: `Your code: ${userVerifyToken}. this code valid until: ${Date(
-        userVerifyTokenExpire
+      text: `Your code: ${userVerifyCode}. this code valid until: ${Date(
+        userVerifyCodeExpire
       )}`,
     };
     sendEmail(mailOptions);
@@ -70,19 +102,39 @@ export const register = async (req, res) => {
   }
 };
 
-// activate account controller
+/**
+ * This is activateAccount controller. After register, users should activate
+ * their account to get full access some content
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const activateAccount = async (req, res) => {
   try {
     // find all matching activation code
     const code = req.body.verification_code;
     const match = await userVerificationsModel.findAll({
-      where: { verification_token: code },
+      where: { verification_code: code },
     });
 
-    // validate duplicate
-    if (match.length > 1) {
+    // validate users
+    const user = await usersModel.findOne({
+      where: { uuid: match[0].user_uuid },
+    });
+
+    if (user.verified) {
+      await userVerificationsModel.destroy({ where: { user_uuid: user.uuid } });
+      return res
+        .status(406)
+        .json({ code: 406, message: "user already active" });
+    }
+
+    // validate expired and duplicate code
+    const date = new Date().getTime();
+    const codeExpiredAt = match[0].expired_at;
+    if (match.length > 1 || date >= codeExpiredAt) {
       // resend code
-      const randomCode = generateUserVerificationCode();
+      const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
       const expiredCode = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
       const mailOptions = {
         from: process.env.SMTP_USER,
@@ -101,24 +153,15 @@ export const activateAccount = async (req, res) => {
       });
     }
 
-    // validate code
-    const user = await usersModel.findOne({ where: { uuid: match[0].userId } });
-
-    if (user.verified) {
-      await userVerificationsModel.destroy({ where: { userId: user.uuid } });
-      return res
-        .status(406)
-        .json({ code: 406, message: "user already active" });
-    }
-
-    if (match[0].verification_token != code)
+    // check code
+    if (match[0].verification_code != code)
       return res.status(406).json({ code: 406, message: "invalid code" });
 
     // update user
     await usersModel.update({ verified: true }, { where: { uuid: user.uuid } });
 
     // delete code
-    await userVerificationsModel.destroy({ where: { userId: user.uuid } });
+    await userVerificationsModel.destroy({ where: { user_uuid: user.uuid } });
 
     return res
       .status(200)
@@ -129,7 +172,13 @@ export const activateAccount = async (req, res) => {
   }
 };
 
-// login controller
+/**
+ * This is login controller. client send request, then server generate access
+ * token and refresh token. client get access_token that needed to access some content
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const login = async (req, res) => {
   try {
     // find user by email
@@ -152,12 +201,12 @@ export const login = async (req, res) => {
       fullname: user.fullname,
       username: user.username,
       email: user.email,
-      role: user.role,
+      is_admin: user.is_admin,
       avatar_path: user.avatar_path,
     };
 
     const accessToken = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
-      expiresIn: "30s",
+      expiresIn: "1m",
     });
 
     const refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
@@ -187,7 +236,13 @@ export const login = async (req, res) => {
   }
 };
 
-// get token controller
+/**
+ * This is getToken controller. use to get access_token without re-login
+ * as long as client have refresh_token in their browser cookies
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const getToken = async (req, res) => {
   try {
     // get token from cookie
@@ -217,7 +272,7 @@ export const getToken = async (req, res) => {
           fullname: user.fullname,
           username: user.username,
           email: user.email,
-          role: user.role,
+          is_admin: user.is_admin,
           avatar_path: user.avatar_path,
         };
 
@@ -238,7 +293,12 @@ export const getToken = async (req, res) => {
   }
 };
 
-// logout controller
+/**
+ * This is logout controller. delete token both server and browser cookie
+ * @param {*} req
+ * @param {*} res
+ * @returns
+ */
 export const logout = async (req, res) => {
   // get token from cookie
   const refreshToken = req.cookies.refreshToken;

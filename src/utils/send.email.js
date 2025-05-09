@@ -1,7 +1,7 @@
 import transporter from "../config/email.js";
 
 /**
- * function to send email
+ * This is function to send email
  * @param {object} mailOptions email options => from,to,subject,text,html
  */
 
