@@ -2,21 +2,22 @@ import path from "path";
 
 /**
  * This is function to upload file
- * @param {*} req request from the body
- * @param {*} res response
+ * @param {*} file the name of file request
  * @param {*} uploadFolder destination uploaded file
+ * @param {*} res response
  * @returns
  */
-export const uploadFile = async (req, res, uploadFolder) => {
+export const uploadFile = async (file, uploadFolder, res) => {
   // define
-  const file = req.files.file;
   const ext = path.extname(file.name);
   const fileSize = file.data.length;
   const allowedFormat = [".png", ".jpg", ".jpeg"];
 
   //   check extension
   if (!allowedFormat.includes(ext.toLowerCase()))
-    return res.status(422).json({ code: 422, message: "invalid format" });
+    return res
+      .status(422)
+      .json({ code: 422, message: "only picture format supported" });
   if (fileSize > 5000000)
     return res
       .status(422)

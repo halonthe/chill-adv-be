@@ -17,6 +17,12 @@ const __dirname = dirname(__filename);
  */
 export const getUsers = async (req, res) => {
   try {
+    const search = req.query.search || "";
+    const page = parseInt(req.query.page) || 0;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = limit * page;
+
+    // fetch users
     const result = await usersModel.findAll({
       // make sure data sensitif tidak dikirim ke client
       attributes: [
@@ -28,10 +34,54 @@ export const getUsers = async (req, res) => {
         "verified",
         "avatar_path",
       ],
+      where: {
+        [Op.or]: [
+          {
+            fullname: { [Op.like]: "%" + search + "%" },
+          },
+          {
+            username: { [Op.like]: "%" + search + "%" },
+          },
+          {
+            email: { [Op.like]: "%" + search + "%" },
+          },
+        ],
+      },
+      offset: offset,
+      limit: limit,
+      order: [["fullname", "ASC"]],
     });
-    return res
-      .status(200)
-      .json({ code: 200, message: "success fetching user", data: result });
+
+    // total rows
+    const rows = await usersModel.count({
+      where: {
+        [Op.or]: [
+          {
+            fullname: { [Op.like]: "%" + search + "%" },
+          },
+          {
+            username: { [Op.like]: "%" + search + "%" },
+          },
+          {
+            email: { [Op.like]: "%" + search + "%" },
+          },
+        ],
+      },
+    });
+
+    // total pages
+    const pages = Math.ceil(rows / limit);
+
+    // return
+    return res.status(200).json({
+      code: 200,
+      message: "success fetching users",
+      data: result,
+      page: page,
+      limit: limit,
+      totalRows: rows,
+      totalPages: pages,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ code: 500, message: error.message });
@@ -83,8 +133,7 @@ export const getUserById = async (req, res) => {
  * @returns
  */
 export const addUser = async (req, res) => {
-  const { fullname, username, email, password, confPassword, is_admin } =
-    req.body;
+  const { fullname, username, email, password, confPassword } = req.body;
 
   // validasi email
   const userExist = await usersModel.findOne({ where: { email: email } });
@@ -105,16 +154,16 @@ export const addUser = async (req, res) => {
   )}/images/users/default.png`;
 
   if (req.files) {
-    const file = req.files.file;
+    const file = req.files.avatar_path;
     const ext = path.extname(file.name);
-    const fileName = file.md5 + ext;
+    const fileName = new Date().getTime() + file.md5 + ext;
     const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
     const uploadFolder = path.join(
       __dirname,
       `../public/images/users/${fileName}`
     );
 
-    uploadFile(req, res, uploadFolder);
+    uploadFile(file, uploadFolder, res);
     avatarPath = url;
   }
 
@@ -125,8 +174,8 @@ export const addUser = async (req, res) => {
       username: username,
       email: email,
       password: hashPassword,
-      is_admin: is_admin,
-      avatar_path: avatarPath,
+      verified: true,
+      avatar_path: req.body.avatar_path || avatarPath,
     });
     return res
       .status(201)
@@ -168,22 +217,32 @@ export const updateUser = async (req, res) => {
       message: "password and confirm password doesn't match",
     });
 
-  // file upload
-  let avatarPath = `${req.protocol}://${req.get(
-    "host"
-  )}/images/users/default.png`;
-
+  // check file
+  let avatarPath = user.avatar_path;
   if (req.files) {
-    const file = req.files.file;
+    const fileArr = avatarPath.split("/");
+    const oldFile = fileArr[fileArr.length - 1];
+    const file = req.files.avatar_path;
     const ext = path.extname(file.name);
-    const fileName = file.md5 + ext;
+    const fileName = new Date().getTime() + file.md5 + ext;
+
+    // delete old picture
+    if (oldFile != fileName || oldFile != "default.png") {
+      const filePath = path.join(
+        __dirname,
+        `../public/images/users/${oldFile}`
+      );
+      fs.unlinkSync(filePath);
+    }
+
+    // upload new picture
     const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
     const uploadFolder = path.join(
       __dirname,
       `../public/images/users/${fileName}`
     );
 
-    uploadFile(req, res, uploadFolder);
+    uploadFile(file, uploadFolder, res);
     avatarPath = url;
   }
 
@@ -196,7 +255,7 @@ export const updateUser = async (req, res) => {
         email: email,
         password: hashPassword,
         is_admin: is_admin,
-        avatar_path: avatarPath,
+        avatar_path: req.body.avatar_path || avatarPath,
       },
       {
         where: { uuid: user.uuid },
@@ -231,8 +290,13 @@ export const deleteUser = async (req, res) => {
     const fileUrl = user.avatar_path;
     const fileArr = fileUrl.split("/");
     const fileName = fileArr[fileArr.length - 1];
-    const filePath = path.join(__dirname, `../public/images/users/${fileName}`);
-    fs.unlinkSync(filePath);
+    if (fileName != "default.png") {
+      const filePath = path.join(
+        __dirname,
+        `../public/images/users/${fileName}`
+      );
+      fs.unlinkSync(filePath);
+    }
 
     // delete user data
     await usersModel.destroy({

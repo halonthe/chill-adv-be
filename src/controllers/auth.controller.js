@@ -6,7 +6,7 @@ import path from "path";
 
 import usersModel from "../models/users.model.js";
 import userVerificationsModel from "../models/user.verifications.model.js";
-import { sendEmail } from "../utils/send.email.js";
+import { registerEmailTemplate, sendEmail } from "../utils/send.email.js";
 import { uploadFile } from "../utils/file.upload.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,16 +47,16 @@ export const register = async (req, res) => {
   )}/images/users/default.png`;
 
   if (req.files) {
-    const file = req.files.file;
+    const file = req.files.avatar_path;
     const ext = path.extname(file.name);
-    const fileName = file.md5 + ext;
+    const fileName = new Date().getTime() + file.md5 + ext;
     const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
     const uploadFolder = path.join(
       __dirname,
       `../public/images/users/${fileName}`
     );
 
-    uploadFile(req, res, uploadFolder);
+    uploadFile(file, uploadFolder, res);
     avatarPath = url;
   }
 
@@ -71,7 +71,7 @@ export const register = async (req, res) => {
       username: username,
       email: email,
       password: hashPassword,
-      avatar_path: avatarPath,
+      avatar_path: req.body.avatar_path || avatarPath,
     });
 
     // create verification
@@ -82,15 +82,15 @@ export const register = async (req, res) => {
     });
 
     // send verification email
-    const mailOptions = {
-      from: process.env.SMTP_USER,
-      to: user.email,
-      subject: "Verify Account",
-      text: `Your code: ${userVerifyCode}. this code valid until: ${Date(
-        userVerifyCodeExpire
-      )}`,
-    };
-    sendEmail(mailOptions);
+    sendEmail(
+      "Verify Account",
+      user.email,
+      registerEmailTemplate(
+        user.fullname,
+        userVerifyCode,
+        Date(userVerifyCodeExpire)
+      )
+    );
 
     return res.status(200).json({
       code: 200,
@@ -117,11 +117,15 @@ export const activateAccount = async (req, res) => {
       where: { verification_code: code },
     });
 
-    // validate users
+    if (!match[0] || match[0].verification_code != code)
+      return res.status(406).json({ code: 406, message: "invalid code" });
+
+    // search user
     const user = await usersModel.findOne({
       where: { uuid: match[0].user_uuid },
     });
 
+    // check user
     if (user.verified) {
       await userVerificationsModel.destroy({ where: { user_uuid: user.uuid } });
       return res
@@ -129,33 +133,39 @@ export const activateAccount = async (req, res) => {
         .json({ code: 406, message: "user already active" });
     }
 
-    // validate expired and duplicate code
-    const date = new Date().getTime();
-    const codeExpiredAt = match[0].expired_at;
-    if (match.length > 1 || date >= codeExpiredAt) {
-      // resend code
-      const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
-      const expiredCode = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-      const mailOptions = {
-        from: process.env.SMTP_USER,
-        to: user.email,
-        subject: "Verify Account",
-        text: `Your code: ${randomCode}. this code valid until: ${Date(
-          expiredCode
-        )}`,
-      };
-      sendEmail(mailOptions);
+    const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiredCode = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 
+    // check duplicate
+    if (match[0].length > 1) {
+      // resend email verify code
+      sendEmail(
+        "Verify Account",
+        user.email,
+        registerEmailTemplate(user.fullname, randomCode, Date(expiredCode))
+      );
       return res.status(409).json({
         code: 409,
-        message:
-          "conflict detected, we have resend code, please check your email",
+        message: "conflict! we have resend code, please check your email",
       });
     }
 
-    // check code
-    if (match[0].verification_code != code)
-      return res.status(406).json({ code: 406, message: "invalid code" });
+    // check expired
+    const date = new Date().getTime();
+    const codeExpiredAt = match[0].expired_at;
+    if (date >= codeExpiredAt) {
+      // resend email verify code
+      sendEmail(
+        "Verify Account",
+        user.email,
+        registerEmailTemplate(user.fullname, randomCode, Date(expiredCode))
+      );
+
+      return res.status(409).json({
+        code: 409,
+        message: "code expired! we have resend code, please check your email",
+      });
+    }
 
     // update user
     await usersModel.update({ verified: true }, { where: { uuid: user.uuid } });
@@ -188,7 +198,9 @@ export const login = async (req, res) => {
 
     //   validasi user
     if (!user)
-      return res.status(200).json({ code: 200, message: "user not found" });
+      return res
+        .status(400)
+        .json({ code: 400, message: `email not registered` });
 
     //   validasi password
     const match = await argon2.verify(user.password, req.body.password);

@@ -10,10 +10,17 @@ const userVerificationsModel = db.define(
     user_uuid: {
       type: DataTypes.UUID,
       allowNull: false,
+      references: {
+        model: "users",
+        key: "uuid",
+      },
+      onDelete: "CASCADE",
+      onUpdate: "CASCADE",
     },
     verification_code: {
       type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
     },
     expired_at: {
       type: DataTypes.DATE,

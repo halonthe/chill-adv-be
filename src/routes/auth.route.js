@@ -12,7 +12,7 @@ const authRoute = Router();
 // register
 authRoute.post("/register", register);
 // verify account
-authRoute.post("/verify", activateAccount);
+authRoute.post("/verify-account", activateAccount);
 // login
 authRoute.post("/login", login);
 // logout

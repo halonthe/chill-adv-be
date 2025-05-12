@@ -9,6 +9,8 @@ import path from "path";
 import db from "./config/database.js";
 import usersRoute from "./routes/users.route.js";
 import authRoute from "./routes/auth.route.js";
+import moviesRoute from "./routes/movies.route.js";
+import genresRoute from "./routes/genres.route.js";
 
 const PORT = process.env.SERVER_PORT || 3000;
 const app = express();
@@ -36,6 +38,8 @@ app.get("/", (req, res) => {
 
 app.use("/users", usersRoute);
 app.use("/auth", authRoute);
+app.use("/movies", moviesRoute);
+app.use("/genres", genresRoute);
 
 // listen
 app.listen(PORT, () => {

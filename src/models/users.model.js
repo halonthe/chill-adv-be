@@ -12,6 +12,7 @@ const usersModel = db.define(
       defaultValue: DataTypes.UUIDV4,
       allowNull: false,
       primaryKey: true,
+      unique: true,
       validate: { notEmpty: true },
     },
     fullname: {
@@ -22,11 +23,13 @@ const usersModel = db.define(
     username: {
       type: DataTypes.STRING,
       allowNull: false,
-      validate: { notEmpty: true, len: [3, 100] }, // len: [min-char, max-char]
+      unique: true,
+      validate: { notEmpty: true, len: [5, 100] }, // len: [min-char, max-char]
     },
     email: {
       type: DataTypes.STRING,
       allowNull: false,
+      unique: true,
       validate: { notEmpty: true, isEmail: true },
     },
     password: {
@@ -42,7 +45,8 @@ const usersModel = db.define(
     },
     avatar_path: {
       type: DataTypes.TEXT,
-      allowNull: true,
+      allowNull: false,
+      validate: { notEmpty: true },
     },
     verified: {
       type: DataTypes.BOOLEAN,
@@ -52,6 +56,7 @@ const usersModel = db.define(
     },
     refresh_token: {
       type: DataTypes.TEXT,
+      allowNull: true,
     },
     deletedAt: {
       type: DataTypes.DATE,
