@@ -4,6 +4,7 @@ import { dirname } from "path";
 import path from "path";
 import fs from "fs";
 import usersModel from "../models/users.model.js";
+import { Op } from "sequelize";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
