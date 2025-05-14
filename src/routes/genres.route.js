@@ -17,7 +17,7 @@ genresRoute.get("/", verifyToken, verifyAccount, getGenres);
 // get genre by id
 genresRoute.get("/:id", verifyToken, verifyAccount, getGenreById);
 // add genres
-genresRoute.post("/", addGenre);
+genresRoute.post("/", verifyToken, verifyAccount, verifyRole, addGenre);
 // update genres
 genresRoute.patch("/:id", verifyToken, verifyAccount, verifyRole, updateGenre);
 // delete genres

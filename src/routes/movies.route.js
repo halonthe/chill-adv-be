@@ -14,11 +14,7 @@ import {
 const moviesRoute = Router();
 
 // get all movies
-moviesRoute.get(
-  "/",
-  // verifyToken, verifyAccount,
-  getMovies
-);
+moviesRoute.get("/", verifyToken, verifyAccount, getMovies);
 
 // get movie by title
 moviesRoute.get("/:slug", verifyToken, verifyAccount, getMovieBySlug);
