@@ -12,12 +12,12 @@ const authRoute = Router();
 // register
 authRoute.post("/register", register);
 // verify account
-authRoute.post("/verify-account", activateAccount);
+authRoute.post("/verify-account/:id", activateAccount);
 // login
 authRoute.post("/login", login);
 // logout
 authRoute.delete("/logout", logout);
 // get token
-authRoute.get("/get-token", getToken);
+authRoute.get("/token", getToken);
 
 export default authRoute;

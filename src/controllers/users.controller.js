@@ -4,7 +4,6 @@ import { dirname } from "path";
 import path from "path";
 import fs from "fs";
 import usersModel from "../models/users.model.js";
-import { uploadFile } from "../utils/file.upload.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -51,6 +50,8 @@ export const getUsers = async (req, res) => {
       limit: limit,
       order: [["fullname", "ASC"]],
     });
+
+    if (!result[0]) return res.sendStatus(204);
 
     // total rows
     const rows = await usersModel.count({
@@ -135,12 +136,44 @@ export const getUserById = async (req, res) => {
 export const addUser = async (req, res) => {
   const { fullname, username, email, password, confPassword } = req.body;
 
+  // check field
+  if (!fullname || !username || !email || !password)
+    return res
+      .status(400)
+      .json({ code: 400, message: "all fields are required" });
+
   // validasi email
-  const userExist = await usersModel.findOne({ where: { email: email } });
-  if (userExist)
+  const emailExist = await usersModel.findOne({ where: { email: email } });
+  if (emailExist)
     return res.status(400).json({ message: "email already exists" });
 
+  // validasi username
+  const regexUsername = /^[a-zA-Z0-9]{3,}$/g;
+  const usernameProvide = regexUsername.test(username);
+
+  if (!usernameProvide)
+    return res.status(400).json({
+      message:
+        "ensure username have at least 3 char, no whitespace, and no special character",
+    });
+
+  const usernameExist = await usersModel.findOne({
+    where: { username: username },
+  });
+  if (usernameExist)
+    return res.status(400).json({ message: "username already taken" });
+
   // validasi password
+  const regexPassword =
+    /^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!-\/:-@[-`{-~]).{8,}$/g;
+  const passwordStrong = regexPassword.test(password);
+
+  if (!passwordStrong)
+    return res.status(400).json({
+      message:
+        "password must have at least 8 char, at least one uppercase letter, one lowercase letter, one number and one special character",
+    });
+
   if (password !== confPassword)
     return res
       .status(400)
@@ -148,34 +181,39 @@ export const addUser = async (req, res) => {
 
   const hashPassword = await argon2.hash(password);
 
-  // file upload
-  let avatarPath = `${req.protocol}://${req.get(
-    "host"
-  )}/images/users/default.png`;
-
-  if (req.files) {
-    const file = req.files.avatar_path;
-    const ext = path.extname(file.name);
-    const fileName = new Date().getTime() + file.md5 + ext;
-    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
-    const uploadFolder = path.join(
-      __dirname,
-      `../public/images/users/${fileName}`
-    );
-
-    uploadFile(file, uploadFolder, res);
-    avatarPath = url;
-  }
-
-  // push to database
   try {
+    // avatar upload
+    const url = `${req.protocol}://${req.get("host")}`;
+    let avatarPath = `${url}/images/users/default.png`;
+
+    if (req.files) {
+      const uniqueSuffix = Date.now() + Math.round(Math.random() * 1e9);
+      const file = req.files.avatar_path;
+      const ext = path.extname(file.name);
+      const fileName = uniqueSuffix + file.md5 + ext;
+
+      //   save file
+      const uploadPath = path.join(
+        __dirname,
+        `../public/images/users/${fileName}`
+      );
+      file.mv(uploadPath, async (error) => {
+        if (error)
+          return res.status(500).json({ code: 500, message: error.message });
+      });
+
+      // save url path
+      avatarPath = `${url}/images/users/${fileName}`;
+    }
+
+    // push to database
     const result = await usersModel.create({
       fullname: fullname,
       username: username,
       email: email,
       password: hashPassword,
       verified: true,
-      avatar_path: req.body.avatar_path || avatarPath,
+      avatar_path: avatarPath,
     });
     return res
       .status(201)
@@ -219,31 +257,31 @@ export const updateUser = async (req, res) => {
 
   // check file
   let avatarPath = user.avatar_path;
+  const fileArr = avatarPath.split("/");
+  const oldFile = fileArr[fileArr.length - 1];
   if (req.files) {
-    const fileArr = avatarPath.split("/");
-    const oldFile = fileArr[fileArr.length - 1];
+    const uniqueSuffix = Date.now() + Math.round(Math.random() * 1e9);
     const file = req.files.avatar_path;
     const ext = path.extname(file.name);
-    const fileName = new Date().getTime() + file.md5 + ext;
+    const fileName = uniqueSuffix + file.md5 + ext;
 
     // delete old picture
-    if (oldFile != fileName || oldFile != "default.png") {
-      const filePath = path.join(
+    if (oldFile != fileName && oldFile != "default.png") {
+      fs.unlinkSync(path.join(__dirname, `../public/images/users/${oldFile}`));
+      // upload new picture
+      const uploadFolder = path.join(
         __dirname,
-        `../public/images/users/${oldFile}`
+        `../public/images/users/${fileName}`
       );
-      fs.unlinkSync(filePath);
+      file.mv(uploadFolder, async (error) => {
+        if (error)
+          return res.status(500).json({ code: 500, message: error.message });
+      });
+
+      avatarPath = `${req.protocol}://${req.get(
+        "host"
+      )}/images/users/${fileName}`;
     }
-
-    // upload new picture
-    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
-    const uploadFolder = path.join(
-      __dirname,
-      `../public/images/users/${fileName}`
-    );
-
-    uploadFile(file, uploadFolder, res);
-    avatarPath = url;
   }
 
   // update data
@@ -255,7 +293,7 @@ export const updateUser = async (req, res) => {
         email: email,
         password: hashPassword,
         is_admin: is_admin,
-        avatar_path: req.body.avatar_path || avatarPath,
+        avatar_path: avatarPath,
       },
       {
         where: { uuid: user.uuid },
@@ -291,11 +329,7 @@ export const deleteUser = async (req, res) => {
     const fileArr = fileUrl.split("/");
     const fileName = fileArr[fileArr.length - 1];
     if (fileName != "default.png") {
-      const filePath = path.join(
-        __dirname,
-        `../public/images/users/${fileName}`
-      );
-      fs.unlinkSync(filePath);
+      fs.unlinkSync(path.join(__dirname, `../public/images/users/${fileName}`));
     }
 
     // delete user data

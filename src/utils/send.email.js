@@ -3,19 +3,19 @@ import transporter from "../config/email.js";
 /**
  * This is function to send email
  * @param {*} subject
- * @param {*} email
+ * @param {*} receiver
  * @param {*} template
  */
-export const sendEmail = async (subject, email, template) => {
+export const sendEmail = async (subject, receiver, template) => {
   await transporter.sendMail({
     from: `Chill <${process.env.SMTP_USER}>`,
-    to: email,
+    to: receiver,
     subject: subject,
     html: template,
   });
 };
 
-export const registerEmailTemplate = (name, code, codeExpired) => {
+export const registerEmailTemplate = (user, code, codeExpired) => {
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -29,7 +29,7 @@ export const registerEmailTemplate = (name, code, codeExpired) => {
     <h1 style="color: white; margin: 0;">Verify Your Email</h1>
   </div>
   <div style="background-color: #f9f9f9; padding: 20px; border-radius: 0 0 5px 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-    <p>Hello ${name},</p>
+    <p>Hello ${user},</p>
     <p>Thank you for signing up! Your verification code is:</p>
     <div style="text-align: center; margin: 30px 0;">
       <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #4CAF50;">${code}</span>

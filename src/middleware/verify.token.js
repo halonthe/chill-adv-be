@@ -12,13 +12,16 @@ export const verifyToken = (req, res, next) => {
   const token = authHeader && authHeader.split(" ")[1];
 
   if (!token || token === null)
-    return res.status(401).json({ code: 401, message: "unauthorized" });
+    return res
+      .status(401)
+      .json({ code: 401, message: "unauthorized, token is needed" });
 
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error) => {
     if (error)
-      return res.status(403).json({ code: 403, message: "invalid token" });
-    req.email = decoded.email;
-    console.log(req.email);
+      return res
+        .status(403)
+        .json({ code: 403, message: "access denied, token invalid" });
+
     next();
   });
 };

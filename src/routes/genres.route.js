@@ -1,4 +1,7 @@
 import { Router } from "express";
+import { verifyToken } from "../middleware/verify.token.js";
+import { verifyAccount } from "../middleware/verify.account.js";
+import { verifyRole } from "../middleware/verify.role.js";
 import {
   addGenre,
   deleteGenre,
@@ -10,14 +13,14 @@ import {
 const genresRoute = Router();
 
 // get all genres
-genresRoute.get("/", getGenres);
+genresRoute.get("/", verifyToken, verifyAccount, getGenres);
 // get genre by id
-genresRoute.get("/:id", getGenreById);
+genresRoute.get("/:id", verifyToken, verifyAccount, getGenreById);
 // add genres
 genresRoute.post("/", addGenre);
 // update genres
-genresRoute.patch("/:id", updateGenre);
+genresRoute.patch("/:id", verifyToken, verifyAccount, verifyRole, updateGenre);
 // delete genres
-genresRoute.delete("/:id", deleteGenre);
+genresRoute.delete("/:id", verifyToken, verifyAccount, verifyRole, deleteGenre);
 
 export default genresRoute;

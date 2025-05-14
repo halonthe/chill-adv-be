@@ -28,6 +28,8 @@ export const getGenres = async (req, res) => {
       order: [["id", "ASC"]],
     });
 
+    if (!genres[0]) return res.sendStatus(204);
+
     // total rows
     const rows = await genresModel.count({
       where: {

@@ -1,10 +1,10 @@
-import fs from "fs";
+import { Op } from "sequelize";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import path from "path";
+import fs from "fs";
 import moviesModel from "../models/movies.model.js";
-import { uploadFile } from "../utils/file.upload.js";
-import { Op } from "sequelize";
+import genresModel from "../models/genres.model.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,24 +16,48 @@ const __dirname = dirname(__filename);
  */
 export const getMovies = async (req, res) => {
   try {
-    const search = req.query.search || "";
+    const { search, genre, sort } = req.query;
     const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 10;
     const offset = limit * page;
 
-    // fetch movie
+    const where = {};
+    const genreWhere = {};
+    const order = [];
+
+    // search by title
+    if (search) {
+      where.title = { [Op.like]: "%" + search + "%" };
+    }
+
+    // filter by single or multiple genre (ex: genre=drama,action)
+    if (genre) {
+      const genreArr = genre.split(",");
+      genreWhere.name = { [Op.in]: genreArr };
+    }
+
+    // sort: sortBy, sortOrder (ex: sort=release_date,asc)
+    if (sort) {
+      const [sortBy, sortOrder] = sort.split(",");
+      if (sortBy && sortOrder) order.push([sortBy, sortOrder.toUpperCase()]);
+    }
+
+    // fetch movies
     const movies = await moviesModel.findAll({
-      where: {
-        [Op.or]: [
-          {
-            title: { [Op.like]: "%" + search + "%" },
-          },
-        ],
-      },
+      where,
+      include: [
+        {
+          model: genresModel,
+          where: genreWhere, // filter genre by name
+          attributes: ["name"],
+        },
+      ],
+      order,
       offset: offset,
       limit: limit,
-      order: [["title", "ASC"]],
     });
+
+    if (!movies[0]) return res.sendStatus(204);
 
     // total rows
     const rows = await moviesModel.count({
@@ -71,9 +95,10 @@ export const getMovies = async (req, res) => {
  * @param {*} res
  * @returns
  */
-export const getMovieById = async (req, res) => {
+export const getMovieBySlug = async (req, res) => {
   try {
-    const movies = await moviesModel.findOne({ where: { id: req.params.id } });
+    const slug = req.params.slug.split("-").join(" ");
+    const movies = await moviesModel.findOne({ where: { title: slug } });
 
     if (!movies)
       return res.status(200).json({ code: 200, message: "movie not found" });
@@ -142,43 +167,27 @@ export const addMovie = async (req, res) => {
         .json({ code: 400, message: "movie already exist" });
 
     // poster upload
-    let posterPath = `${req.protocol}://${req.get(
-      "host"
-    )}/images/posters/default.png`;
+    const url = `${req.protocol}://${req.get("host")}`;
+    let posterPath = `${url}/images/posters/default.png`;
 
     if (req.files) {
+      const uniqueSuffix = Date.now() + Math.round(Math.random() * 1e9);
       const file = req.files.poster_path;
       const ext = path.extname(file.name);
-      const fileName = new Date().getTime() + file.md5 + ext;
-
-      //   image validation
-      const allowedFormat = [".png", ".jpg", ".jpeg"];
-      if (!allowedFormat.includes(ext.toLowerCase()))
-        return res
-          .status(422)
-          .json({ code: 422, message: "only picture format supported" });
-
-      const fileSize = file.data.length;
-      if (fileSize > 5000000)
-        return res
-          .status(422)
-          .json({ code: 422, message: "file-size must be less than 5MB" });
+      const fileName = uniqueSuffix + file.md5 + ext;
 
       //   save file
-      const uploadFolder = path.join(
+      const uploadPath = path.join(
         __dirname,
         `../public/images/posters/${fileName}`
       );
-      await file.mv(uploadFolder, async (error) => {
+      file.mv(uploadPath, async (error) => {
         if (error)
           return res.status(500).json({ code: 500, message: error.message });
       });
 
-      // save path
-      const url = `${req.protocol}://${req.get(
-        "host"
-      )}/images/posters/${fileName}`;
-      posterPath = url;
+      // save url path
+      posterPath = `${url}/images/posters/${fileName}`;
     }
 
     // push to  database
@@ -194,7 +203,7 @@ export const addMovie = async (req, res) => {
       director: director,
       writer: writer,
       is_premium: is_premium,
-      poster_path: req.body.poster_path || posterPath,
+      poster_path: posterPath,
       trailer_path: trailer_path,
       video_path: video_path,
     });
@@ -232,39 +241,41 @@ export const updateMovie = async (req, res) => {
 
   try {
     //   find movies
-    const movies = await moviesModel.findOne({ where: { id: req.params.id } });
+    const slug = req.params.slug.split("-").join(" ");
+    const movies = await moviesModel.findOne({ where: { title: slug } });
     if (!movies)
       return res.status(200).json({ status: 200, message: "movie not found" });
 
     // check file
     let posterPath = movies.poster_path;
+    const fileArr = posterPath.split("/");
+    const oldFile = fileArr[fileArr.length - 1];
+
     if (req.files) {
-      const fileArr = posterPath.split("/");
-      const oldFile = fileArr[fileArr.length - 1];
+      const uniqueSuffix = Date.now() + Math.round(Math.random() * 1e9);
       const file = req.files.poster_path;
       const ext = path.extname(file.name);
-      const fileName = new Date().getTime() + file.md5 + ext;
+      const fileName = uniqueSuffix + file.md5 + ext;
 
       // delete old picture
-      if (oldFile != fileName || oldFile != "default.png") {
-        const filePath = path.join(
-          __dirname,
-          `../public/images/posters/${oldFile}`
+      if (oldFile != fileName && oldFile != "default.png") {
+        fs.unlinkSync(
+          path.join(__dirname, `../public/images/posters/${oldFile}`)
         );
-        fs.unlinkSync(filePath);
+        // upload new picture
+        const uploadFolder = path.join(
+          __dirname,
+          `../public/images/posters/${fileName}`
+        );
+        file.mv(uploadFolder, async (error) => {
+          if (error)
+            return res.status(500).json({ code: 500, message: error.message });
+        });
+
+        posterPath = `${req.protocol}://${req.get(
+          "host"
+        )}/images/posters/${fileName}`;
       }
-
-      // upload new picture
-      const url = `${req.protocol}://${req.get(
-        "host"
-      )}/images/posters/${fileName}`;
-      const uploadFolder = path.join(
-        __dirname,
-        `../public/images/posters/${fileName}`
-      );
-
-      uploadFile(file, uploadFolder, res);
-      posterPath = url;
     }
 
     //   update database
@@ -285,7 +296,7 @@ export const updateMovie = async (req, res) => {
         trailer_path: trailer_path,
         video_path: video_path,
       },
-      { where: { id: req.params.id } }
+      { where: { id: movies.id } }
     );
     return res.status(200).json({ code: 200, message: "movie updated" });
   } catch (error) {
@@ -303,8 +314,9 @@ export const updateMovie = async (req, res) => {
 export const deleteMovie = async (req, res) => {
   try {
     // find movie
+    const slug = req.params.slug.split("-").join(" ");
     const movie = await moviesModel.findOne({
-      where: { id: req.params.id },
+      where: { title: slug },
     });
 
     if (!movie)
@@ -325,7 +337,7 @@ export const deleteMovie = async (req, res) => {
 
     // delete from database
     await moviesModel.destroy({
-      where: { id: req.params.id },
+      where: { id: movie.id },
     });
     return res.status(200).json({ code: 200, message: "movie deleted" });
   } catch (error) {

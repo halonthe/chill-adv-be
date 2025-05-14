@@ -6,13 +6,13 @@ import fileUpload from "express-fileupload";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import path from "path";
-import db from "./config/database.js";
 import usersRoute from "./routes/users.route.js";
 import authRoute from "./routes/auth.route.js";
 import moviesRoute from "./routes/movies.route.js";
 import genresRoute from "./routes/genres.route.js";
+import { syncDb } from "./utils/sync.databse.js";
 
-const PORT = process.env.SERVER_PORT || 3000;
+const PORT = process.env.SERVER_PORT || 5000;
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -25,17 +25,10 @@ app.use(cookieParser());
 app.use(fileUpload());
 app.use(express.static(path.join(__dirname, "./public")));
 
-// otomatis create table jika tabel belum tersedia di database
-(async () => {
-  await db.sync();
-})();
+// sync database
+syncDb();
 
 // route
-app.get("/", (req, res) => {
-  console.log("ajshjakhsjkashjka");
-  res.send("<h1>OK!</h1>");
-});
-
 app.use("/users", usersRoute);
 app.use("/auth", authRoute);
 app.use("/movies", moviesRoute);

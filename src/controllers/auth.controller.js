@@ -7,7 +7,6 @@ import path from "path";
 import usersModel from "../models/users.model.js";
 import userVerificationsModel from "../models/user.verifications.model.js";
 import { registerEmailTemplate, sendEmail } from "../utils/send.email.js";
-import { uploadFile } from "../utils/file.upload.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,11 +27,37 @@ export const register = async (req, res) => {
       .json({ code: 400, message: "all fields are required" });
 
   // validasi email
-  const userExist = await usersModel.findOne({ where: { email: email } });
-  if (userExist)
+  const emailExist = await usersModel.findOne({ where: { email: email } });
+  if (emailExist)
     return res.status(400).json({ message: "email already exists" });
 
+  // validasi username
+  const regexUsername = /^[a-zA-Z0-9]{3,}$/g;
+  const usernameProvide = regexUsername.test(username);
+
+  if (!usernameProvide)
+    return res.status(400).json({
+      message:
+        "ensure username have at least 3 char, no whitespace, and no special character",
+    });
+
+  const usernameExist = await usersModel.findOne({
+    where: { username: username },
+  });
+  if (usernameExist)
+    return res.status(400).json({ message: "username already taken" });
+
   // validasi password
+  const regexPassword =
+    /^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[!-\/:-@[-`{-~]).{8,}$/g;
+  const passwordStrong = regexPassword.test(password);
+
+  if (!passwordStrong)
+    return res.status(400).json({
+      message:
+        "password must have at least 8 char, at least one uppercase letter, one lowercase letter, one number and one special character",
+    });
+
   if (password !== confPassword)
     return res
       .status(400)
@@ -41,23 +66,28 @@ export const register = async (req, res) => {
   // hash password
   const hashPassword = await argon2.hash(password);
 
-  // file upload
-  let avatarPath = `${req.protocol}://${req.get(
-    "host"
-  )}/images/users/default.png`;
+  // avatar upload
+  const url = `${req.protocol}://${req.get("host")}`;
+  let avatarPath = `${url}/images/users/default.png`;
 
   if (req.files) {
+    const uniqueSuffix = Date.now() + Math.round(Math.random() * 1e9);
     const file = req.files.avatar_path;
     const ext = path.extname(file.name);
-    const fileName = new Date().getTime() + file.md5 + ext;
-    const url = `${req.protocol}://${req.get("host")}/images/users/${fileName}`;
-    const uploadFolder = path.join(
+    const fileName = uniqueSuffix + file.md5 + ext;
+
+    //   save file
+    const uploadPath = path.join(
       __dirname,
       `../public/images/users/${fileName}`
     );
+    file.mv(uploadPath, async (error) => {
+      if (error)
+        return res.status(500).json({ code: 500, message: error.message });
+    });
 
-    uploadFile(file, uploadFolder, res);
-    avatarPath = url;
+    // save url path
+    avatarPath = `${url}/images/users/${fileName}`;
   }
 
   // generate verification code
@@ -71,7 +101,7 @@ export const register = async (req, res) => {
       username: username,
       email: email,
       password: hashPassword,
-      avatar_path: req.body.avatar_path || avatarPath,
+      avatar_path: avatarPath,
     });
 
     // create verification
@@ -111,27 +141,32 @@ export const register = async (req, res) => {
  */
 export const activateAccount = async (req, res) => {
   try {
-    // find all matching activation code
-    const code = req.body.verification_code;
-    const match = await userVerificationsModel.findAll({
-      where: { verification_code: code },
-    });
+    const userId = req.params.id;
+    const code = req.query.code || req.body.verification_code;
 
-    if (!match[0] || match[0].verification_code != code)
-      return res.status(406).json({ code: 406, message: "invalid code" });
+    if (!userId)
+      return res.status(400).json({ code: 400, message: "user not found" });
 
     // search user
     const user = await usersModel.findOne({
-      where: { uuid: match[0].user_uuid },
+      where: { uuid: userId },
     });
 
     // check user
     if (user.verified) {
-      await userVerificationsModel.destroy({ where: { user_uuid: user.uuid } });
+      await userVerificationsModel.destroy({ where: { user_uuid: userId } });
       return res
         .status(406)
         .json({ code: 406, message: "user already active" });
     }
+
+    // check code
+    const match = await userVerificationsModel.findAll({
+      where: { verification_code: code },
+    });
+
+    if (!match[0])
+      return res.status(406).json({ code: 406, message: "invalid code" });
 
     const randomCode = Math.floor(1000 + Math.random() * 9000).toString();
     const expiredCode = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
@@ -241,7 +276,7 @@ export const login = async (req, res) => {
     // send access token to client
     return res
       .status(200)
-      .json({ code: 200, message: "logged in", data: accessToken });
+      .json({ code: 200, message: "logged in", token: accessToken });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ code: 500, message: error.message });
@@ -289,13 +324,13 @@ export const getToken = async (req, res) => {
         };
 
         const accessToken = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
-          expiresIn: "30s",
+          expiresIn: "1m",
         });
 
         return res.status(200).json({
           code: 200,
           message: "refresh token success",
-          data: accessToken,
+          token: accessToken,
         });
       }
     );

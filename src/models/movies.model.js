@@ -48,7 +48,7 @@ const moviesModel = db.define(
       },
     },
     release_date: {
-      type: DataTypes.DATE,
+      type: DataTypes.DATEONLY,
       allowNull: false,
       validate: { notEmpty: true },
     },
